@@ -14,6 +14,8 @@
 #define M2_REV_CHANNEL PCA_CHANNEL_4
 #define PWM_CHANNEL_B PCA_CHANNEL_5
 
+#define SERVO_PIN 27
+
 int pressed = 0;
 
 // Function to accelerate motors forward
@@ -116,17 +118,25 @@ int main() {
     printf("Failed to initialize pigpio! Exiting.\n");
     exit(0);
   }
-  PCA_Init();
-  gpioSetMode(BUTTON_PIN, PI_INPUT);
-  gpioSetPullUpDown(BUTTON_PIN, PI_PUD_UP);
-  if (gpioSetAlertFunc(BUTTON_PIN, motor_control_sequence)) {
-    printf("Failed to set alert function! Exiting.\n");
-    exit(0);
-  }
-  printf("Press the button to control the motors.\n");
-  while (!pressed) {
-    usleep(500000);  // Sleep to debounce
-  }
+  // PCA_Init();
+
+  // Servo Demo
+  gpioSetMode(SERVO_PIN, PI_INPUT);
+  gpioServo(SERVO_PIN, 550);
+  sleep(2);
+  gpioServo(SERVO_PIN, 2350);
+  sleep(2);
+
+  // gpioSetMode(BUTTON_PIN, PI_INPUT);
+  // gpioSetPullUpDown(BUTTON_PIN, PI_PUD_UP);
+  // if (gpioSetAlertFunc(BUTTON_PIN, motor_control_sequence)) {
+  //   printf("Failed to set alert function! Exiting.\n");
+  //   exit(0);
+  // }
+  // printf("Press the button to control the motors.\n");
+  // while (!pressed) {
+  //   usleep(500000);  // Sleep to debounce
+  // }
 
   // Clean up and exit
   printf("Cleaning up and exiting\n");
