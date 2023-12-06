@@ -6,4 +6,8 @@
 
 #include "lib/DEV_Config.h"
 #include "lib/PCA9685.h"
+
+
+void accelerate_forward();
+
 #endif /*MAIN_H*/

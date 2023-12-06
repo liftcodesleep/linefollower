@@ -14,8 +14,6 @@
 #define M2_REV_CHANNEL PCA_CHANNEL_4
 #define PWM_CHANNEL_B PCA_CHANNEL_5
 
-#define SERVO_PIN 27
-
 int pressed = 0;
 
 // Function to accelerate motors forward
@@ -71,6 +69,10 @@ void stop() {
 // Function to control the motors as per the specified sequence
 void motor_control_sequence(int pin, int pin_state, uint32_t time) {
   if (!pressed && pin_state == 1) {
+
+    // Set test here for obstacle detection - disabling motor demo
+
+
     // Accelerate both motors forward
     printf("Accelerating both motors forward to top speed\n");
     accelerate_forward();
@@ -108,41 +110,34 @@ void PCA_Init(void) {
   PCA9685_SetPWMFreq(100);
 }
 
-int main() {
-  // Initialize and configure PCA9685, pigpio, and motor components as needed
-  if (DEV_ModuleInit()) {
-    printf("Failed to initialize DEV_Module! Exiting.\n");
-    exit(0);
-  }
-  if (gpioInitialise() < 0) {
-    printf("Failed to initialize pigpio! Exiting.\n");
-    exit(0);
-  }
-  // PCA_Init();
+// int main() {
+//   // Initialize and configure PCA9685, pigpio, and motor components as needed
+//   if (DEV_ModuleInit()) {
+//     printf("Failed to initialize DEV_Module! Exiting.\n");
+//     exit(0);
+//   }
+//   if (gpioInitialise() < 0) {
+//     printf("Failed to initialize pigpio! Exiting.\n");
+//     exit(0);
+//   }
+//   PCA_Init();
 
-  // Servo Demo
-  gpioSetMode(SERVO_PIN, PI_INPUT);
-  gpioServo(SERVO_PIN, 550);
-  sleep(2);
-  gpioServo(SERVO_PIN, 2350);
-  sleep(2);
+//   gpioSetMode(BUTTON_PIN, PI_INPUT);
+//   gpioSetPullUpDown(BUTTON_PIN, PI_PUD_UP);
+//   if (gpioSetAlertFunc(BUTTON_PIN, motor_control_sequence)) {
+//     printf("Failed to set alert function! Exiting.\n");
+//     exit(0);
+//   }
+//   printf("Press the button to control the motors.\n");
+//   while (!pressed) {
+//     usleep(500000);  // Sleep to debounce
+//   }
 
-  // gpioSetMode(BUTTON_PIN, PI_INPUT);
-  // gpioSetPullUpDown(BUTTON_PIN, PI_PUD_UP);
-  // if (gpioSetAlertFunc(BUTTON_PIN, motor_control_sequence)) {
-  //   printf("Failed to set alert function! Exiting.\n");
-  //   exit(0);
-  // }
-  // printf("Press the button to control the motors.\n");
-  // while (!pressed) {
-  //   usleep(500000);  // Sleep to debounce
-  // }
+//   // Clean up and exit
+//   printf("Cleaning up and exiting\n");
+//   gpioTerminate();
+//   stop();  // Stop motors before exiting
+//   DEV_ModuleExit();
 
-  // Clean up and exit
-  printf("Cleaning up and exiting\n");
-  gpioTerminate();
-  stop();  // Stop motors before exiting
-  DEV_ModuleExit();
-
-  return 0;
-}
+//   return 0;
+// }

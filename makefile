@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -D USE_DEV_LIB
 
-SRCS = main.c lib/DEV_Config.c lib/PCA9685.c lib/dev_hardware_i2c.c lib/dev_hardware_SPI.c lib/sysfs_gpio.c
+SRCS = main.c assignment2.c lib/DEV_Config.c lib/PCA9685.c lib/dev_hardware_i2c.c lib/dev_hardware_SPI.c lib/sysfs_gpio.c
 OBJS = $(SRCS:.c=.o)
 EXEC = main
 
