@@ -11,16 +11,21 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#define TRIG1 23
-#define ECHO1 24
-#define TRIG2 17
-#define ECHO2 27
+#include "assignment2.h"
+
+#define TRIG2 23
+#define ECHO2 24
+#define TRIG1 17
+#define ECHO1 27
 
 volatile uint32_t pulse_tick1, pulse_tick2;
+int previous = 0;
 int previous1 = 0, previous2 = 0;
 
-int local_sleep(int microseconds){
-    if (gpioSleep(PI_TIME_RELATIVE, microseconds, 0)){
+int local_sleep(int microseconds)
+{
+    if (gpioSleep(PI_TIME_RELATIVE, microseconds, 0))
+    {
         printf("Failed gpioSleep! Exiting.\n");
         return 1;
     }
@@ -37,139 +42,125 @@ int local_write(int pin, int pin_state)
     return 0;
 }
 
-int pulse(int trig, int echo, int *previous)
+int pulse(void)
 {
-    if (local_write(trig, PI_OFF)){
+    if (local_write(TRIG, PI_OFF))
+    {
         return 1;
     };
     gpioDelay(5);
-    if (local_write(trig, PI_ON)){
+    if (local_write(TRIG, PI_ON))
+    { // send pulse
         return 1;
     };
-    gpioDelay(10);
-    if (local_write(trig, PI_OFF)){
+    gpioDelay(10); // Pulse must be at least 10 microseconds
+    if (local_write(TRIG, PI_OFF))
+    {
         return 1;
     };
     gpioDelay(5);
-
-    uint32_t pulse_tick = gpioTick();
-    uint32_t begin, end;
-    uint32_t distance;
-
-    if (previous == &previous1){
-        begin = pulse_tick1;
-        end = pulse_tick;
-        pulse_tick1 = pulse_tick;
-    }
-    else{
-        begin = pulse_tick2;
-        end = pulse_tick;
-        pulse_tick2 = pulse_tick;
-    }
-
-    distance = (end - begin) / 58;
-
-    *previous = distance;
-
-    if (distance >= 420){
-        printf("Distance out of range\n");
-        *previous = 0;
-    }
-
+    pulse_tick = gpioTick(); // get time of pulse for future reference
     return 0;
 }
 
-int median(int a, int b, int c){
-    if ((a <= b && b <= c) || (c <= b && b <= a)){
+int median(int a, int b, int c)
+{
+    if ((a <= b && b <= c) || (c <= b && b <= a))
+    {
         return b;
     }
-    else if ((b <= a && a <= c) || (c <= a && a <= b)){
+    else if ((b <= a && a <= c) || (c <= a && a <= b))
+    {
         return a;
     }
-    else{
+    else
+    {
         return c;
     }
 }
 
-void get_distance(int pin, int pin_state, uint32_t time){
-    static uint32_t begin1, begin2, end1, end2;
-    uint32_t distance1, distance2;
-
-    if (pin == ECHO1){
-        if (pin_state == PI_ON){
-            begin1 = time;
+void get_distance(int pin, int pin_state, uint32_t time)
+{
+    static uint32_t begin, end;
+    uint32_t distance;
+    if (time > pulse_tick)
+    { // don't measure the sensor firing
+        /*
+          When ECHO pin state changes to HIGH, mark the time
+          When ECHO pin state changes to LOW, measure the distance using the delta
+        */
+        if (pin_state == PI_ON)
+        {
+            begin = time; // mark timestamp of ECHO firing
         }
-        else if (pin_state == PI_OFF){
-            end1 = time;
-            distance1 = (end1 - begin1) / 58;
-            previous1 = distance1;
-            if (distance1 >= 420){
-                printf("Distance from Sensor 1 out of range\n");
-                previous1 = 0;
-            }
-        }
-    }
-    else if (pin == ECHO2){
-        if (pin_state == PI_ON){
-            begin2 = time;
-        }
-        else if (pin_state == PI_OFF){
-            end2 = time;
-            distance2 = (end2 - begin2) / 58;
-            previous2 = distance2;
-            if (distance2 >= 420){
-                printf("Distance from Sensor 2 out of range\n");
-                previous2 = 0;
+        else if (pin_state == PI_OFF)
+        {
+            end = time;                    // mark timestamp of ECHO receiving
+            distance = (end - begin) / 58; // convert to cm by dividing delta by 58
+            previous = distance;           // record distance
+            if (distance >= 420)
+            { // HC-SR04 has a range of 2 to 400 cm
+                printf("Distance out of range\n");
+                previous = 0;
             }
         }
     }
 }
 
-void sonarDemo(int argc, char *argv[]){
+void sonarDemo(int argc, char *argv[])
+{
     // init GPIO
-    if (gpioInitialise() < 0){
+    if (gpioInitialise() < 0)
+    {
         printf("Failed to initialize GPIO! Exiting.\n");
         return 1;
     }
 
     // TRIG and ECHO pins for Sensor 1
-    if (gpioSetMode(TRIG1, PI_OUTPUT) || gpioSetMode(ECHO1, PI_INPUT)){
+    if (gpioSetMode(TRIG1, PI_OUTPUT) || gpioSetMode(ECHO1, PI_INPUT))
+    {
         printf("Failed to set TRIG1 or ECHO1 pins! Exiting.\n");
         return 1;
     }
 
     // TRIG and ECHO pins for Sensor 2
-    if (gpioSetMode(TRIG2, PI_OUTPUT) || gpioSetMode(ECHO2, PI_INPUT)){
+    if (gpioSetMode(TRIG2, PI_OUTPUT) || gpioSetMode(ECHO2, PI_INPUT))
+    {
         printf("Failed to set TRIG2 or ECHO2 pins! Exiting.\n");
         return 1;
     }
 
     // take measurements as ECHO flips
-    if (gpioSetAlertFunc(ECHO1, get_distance)){
+    if (gpioSetAlertFunc(ECHO1, get_distance))
+    {
         printf("Failed to set alert function for Sensor 1! Exiting.\n");
         return 1;
     }
 
     // take measurements as ECHO flips
-    if (gpioSetAlertFunc(ECHO2, get_distance)){
+    if (gpioSetAlertFunc(ECHO2, get_distance))
+    {
         printf("Failed to set alert function for Sensor 2! Exiting.\n");
         return 1;
     }
 
-    while (1){
+    while (1)
+    {
 
-        if (pulse(TRIG1, ECHO1, &previous1) || pulse(TRIG2, ECHO2, &previous2)){
+        if (pulse())
+        {
             break;
         }
-        if (local_sleep(1)){
+        if (local_sleep(1))
+        {
             break;
         }
-
-        int median_distance = median(previous1, previous2, 0);
-
-        if (median_distance > 0){
-            if (median_distance < 50){
-                if (median_distance < 10){ // if it gets too close
+        if (previous > 0)
+        {
+            if (previous < 50)
+            {
+                if (previous < 10)
+                { // if it gets too close // if it gets too close
                     accelerate_backward();
                     usleep(500000);
                 }
@@ -182,7 +173,8 @@ void sonarDemo(int argc, char *argv[]){
                 turn_right();
                 usleep(500000); // with this the car should be facing the same direction as the start but to the side a bit
 
-                while (1){
+                while (1)
+                {
                     // repeat this until the car is past the object
                     stop();
                     accelerate_forward();
@@ -192,17 +184,20 @@ void sonarDemo(int argc, char *argv[]){
                     usleep(500000);
                     stop();
 
-                    if (pulse(TRIG1, ECHO1, &previous1) || pulse(TRIG2, ECHO2, &previous2)){ // check if car is past the obstacle
+                    if (pulse())
+                    { // check if car is past the obstacle
                         break;
                     }
                     if (local_sleep(1))
                     {
                         break;
                     }
-                    if (median_distance == 0 || median_distance > 100){ // the car is past the obstacle
+                    if (previous == 0 || previous > 100)
+                    { // the car is past the obstacle
                         break;
                     }
-                    else{
+                    else
+                    {
                         turn_left();
                         usleep(500000);
                         stop();
