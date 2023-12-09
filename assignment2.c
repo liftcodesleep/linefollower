@@ -13,9 +13,9 @@
 
 #include "assignment2.h"
 
-#define TRIG2 23
-#define ECHO2 24
-#define TRIG1 17
+#define TRIG2 5 // SIDE
+#define ECHO2 6
+#define TRIG1 17 // FRONT
 #define ECHO1 27
 
 volatile uint32_t pulse_tick1, pulse_tick2;
@@ -42,24 +42,49 @@ int local_write(int pin, int pin_state)
     return 0;
 }
 
-int pulse(void)
+// Rewrite this so we can only use one sonar at a time - Change sonar when attempting to naviate obstacle
+// int pulse(void)
+// {
+//     if (local_write(TRIG1, PI_OFF))
+//     {
+//         return 1;
+//     };
+//     gpioDelay(5);
+//     if (local_write(TRIG1, PI_ON))
+//     { // send pulse
+//         return 1;
+//     };
+//     gpioDelay(10); // Pulse must be at least 10 microseconds
+//     if (local_write(TRIG1, PI_OFF))
+//     {
+//         return 1;
+//     };
+//     gpioDelay(5);
+//     pulse_tick1 = gpioTick(); // get time of pulse for future reference
+//     return 0;
+// }
+
+int pulse(int pin)
 {
-    if (local_write(TRIG, PI_OFF))
+    if (local_write(pin, PI_OFF))
     {
         return 1;
-    };
+    }
+
     gpioDelay(5);
-    if (local_write(TRIG, PI_ON))
+    if (local_write(pin, PI_ON))
     { // send pulse
         return 1;
-    };
+    }
+
     gpioDelay(10); // Pulse must be at least 10 microseconds
-    if (local_write(TRIG, PI_OFF))
+    if (local_write(pin, PI_OFF))
     {
         return 1;
-    };
+    }
+
     gpioDelay(5);
-    pulse_tick = gpioTick(); // get time of pulse for future reference
+    pulse_tick1 = gpioTick(); // get time of pulse for future reference
     return 0;
 }
 
@@ -83,7 +108,7 @@ void get_distance(int pin, int pin_state, uint32_t time)
 {
     static uint32_t begin, end;
     uint32_t distance;
-    if (time > pulse_tick)
+    if (time > pulse_tick1)
     { // don't measure the sensor firing
         /*
           When ECHO pin state changes to HIGH, mark the time
@@ -97,7 +122,8 @@ void get_distance(int pin, int pin_state, uint32_t time)
         {
             end = time;                    // mark timestamp of ECHO receiving
             distance = (end - begin) / 58; // convert to cm by dividing delta by 58
-            previous = distance;           // record distance
+            previous = distance;        // record distance
+            printf("DISTANCE DETECT FROM PIN %d: %d\n", pin, previous); // Debugging print statement
             if (distance >= 420)
             { // HC-SR04 has a range of 2 to 400 cm
                 printf("Distance out of range\n");
@@ -107,8 +133,10 @@ void get_distance(int pin, int pin_state, uint32_t time)
     }
 }
 
-void sonarDemo(int argc, char *argv[])
+// void obstacleAvoidance(int argc, char *argv[])
+int obstacleAvoidance(void)
 {
+    printf("INSIDE SONARDEMO\n");
     // init GPIO
     if (gpioInitialise() < 0)
     {
@@ -144,10 +172,13 @@ void sonarDemo(int argc, char *argv[])
         return 1;
     }
 
+    // Goal: Refine the obstacle avoidance function so that it is not a predetermined 4x4 turn.
+    // We need to handle an unorthodox container or situation.
     while (1)
     {
+        stop();
 
-        if (pulse())
+        if (pulse(TRIG1))
         {
             break;
         }
@@ -155,63 +186,97 @@ void sonarDemo(int argc, char *argv[])
         {
             break;
         }
+
         if (previous > 0)
         {
+            printf("INSIDE PREVIOUS LOOP\n");
             if (previous < 50)
             {
-                if (previous < 10)
+                if (previous < 20)
                 { // if it gets too close // if it gets too close
+                    printf("Too close! Reverse reverse!\n");
+
+                    // Brief pause
+                    stop();
+                    // usleep(1000000);
+                    sleep(2);
                     accelerate_backward();
-                    usleep(500000);
+                    // usleep(1000000);
+                    sleep(1);
+                    stop();
+                    // Pause to measure the distance after a one second reverse
+                    printf("After reverse - FWD ");
                 }
+
+                printf("Initial obstacle detection!\n");
                 stop();
                 turn_left();
-                usleep(500000); // figure out a proper time for this
-                // may need a stop here
-                accelerate_forward();
-                usleep(500000);
-                turn_right();
-                usleep(500000); // with this the car should be facing the same direction as the start but to the side a bit
+                // usleep(100000); // figure out a proper time for this
+                sleep(1); // Almost 90 degree turn?
+                // may need a stop here - we do for testing
+                stop();
+                sleep(5);
+                printf("Here we go!\n");
 
-                while (1)
+                // Part of original code - keep for reference while working on new loop
+                // accelerate_forward();
+                // usleep(1000000);
+                // sleep(1);
+                // stop(); // again
+
+                // This block is to repeat for the remaining turns to navigate around the object. We are assuming that
+                // two right turns need to be performed before detecting the line again
+                // Currently it is only using the center line sensor as the condition to break the loop
+                while (!gpioRead(LINE_CENTER)) // repeat this until the car is past the object - utilizing side sonar only
                 {
-                    // repeat this until the car is past the object
-                    stop();
-                    accelerate_forward();
-                    usleep(1000000);
-                    stop();
-                    turn_right();
-                    usleep(500000);
-                    stop();
-
-                    if (pulse())
-                    { // check if car is past the obstacle
+                    if (pulse(TRIG2)) // Triggering sensor on the right side
+                    {
                         break;
                     }
+
                     if (local_sleep(1))
                     {
                         break;
                     }
-                    if (previous == 0 || previous > 100)
-                    { // the car is past the obstacle
-                        break;
-                    }
-                    else
+
+                    if (previous < 50)
                     {
-                        turn_left();
-                        usleep(500000);
+                        printf("Crusing along the obstacle\n");
+                        accelerate_forward();
+                        sleep(1);
                         stop();
+                        sleep(5);
+                    } else {
+                        printf("We believe the car is past the obstacle\n");
+                        accelerate_forward();
+                        sleep(1);
+                        stop();
+                        sleep(5);
+                        turn_right();
+                        sleep(1);
+                        stop();
+                        sleep(5);
                     }
                 }
-                accelerate_forward();
-                usleep(1000000);
+
+                // We've found a line
+                printf("We found a line!\n");
+
+                turn_left(); // Assuming the line will be continue to the left based on our turns (L,R,R)
+                sleep(1);
                 stop();
+                sleep(5);
+                accelerate_forward();
+                // usleep(1000000);
+                sleep(1);
+                stop();
+                
                 // turn off override and hopefully the line sensor kicks in and realins the car
                 // otherwise turn it left
             }
         }
     }
 
-    gpioTerminate();
+    //gpioTerminate(); // main.c should be responsible for gpioTerminate
     return 0;
 }
