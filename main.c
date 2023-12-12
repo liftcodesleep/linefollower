@@ -20,28 +20,31 @@ volatile bool obstacle_detected = false;
 int input_pins[NUM_INPUT] = {LINE_CENTER, LINE_LEFT, LINE_RIGHT, ECHO};
 int output_pins[NUM_OUTPUT] = {TRIG};
 int buttons[NUM_BUTTONS] = {BUTTON_PIN};
-pthread_mutex_t sensor_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Function to accelerate motors forward
-void accelerate_forward(int milliseconds) {
-  printf("accelerate_forward:\n");
-  PCA9685_SetPwmDutyCycle(PWM_MOTOR_LEFT, 100);
-  PCA9685_SetPwmDutyCycle(PWM_MOTOR_RIGHT, 100);
+void accelerate_forward(int microseconds, int pwm) {
+  // printf("accelerate_forward:\n");
+  PCA9685_SetPwmDutyCycle(PWM_MOTOR_LEFT, pwm);
+  PCA9685_SetPwmDutyCycle(PWM_MOTOR_RIGHT, pwm);
   PCA9685_SetLevel(M1_FWD, 1);
   PCA9685_SetLevel(M1_REV, 0);
   PCA9685_SetLevel(M2_FWD, 1);
   PCA9685_SetLevel(M2_REV, 0);
+  usleep(microseconds);
   store_last_turn();
   current_direction = STRAIGHT;
 }
 // Function to accelerate motors backward
-void accelerate_backward() {
-  PCA9685_SetPwmDutyCycle(PWM_MOTOR_LEFT, 100);
-  PCA9685_SetPwmDutyCycle(PWM_MOTOR_RIGHT, 100);
+void accelerate_backward(int microseconds, int pwm) {
+  PCA9685_SetPwmDutyCycle(PWM_MOTOR_LEFT, pwm);
+  PCA9685_SetPwmDutyCycle(PWM_MOTOR_RIGHT, pwm);
   PCA9685_SetLevel(M1_FWD, 0);
   PCA9685_SetLevel(M1_REV, 1);
   PCA9685_SetLevel(M2_FWD, 0);
   PCA9685_SetLevel(M2_REV, 1);
+  usleep(microseconds);
+  store_last_turn();
+  current_direction = STRAIGHT;
 }
 // Function to turn left
 void turn_left(int dutyL, int dutyR) {
@@ -68,7 +71,7 @@ void turn_right(int dutyL, int dutyR) {
   current_direction = RIGHT;
 }
 // Function to stop motors
-void stop_motors() {
+void stop_motors(int microseconds) {
   PCA9685_SetPwmDutyCycle(PWM_MOTOR_LEFT, 0);
   PCA9685_SetPwmDutyCycle(PWM_MOTOR_RIGHT, 0);
   PCA9685_SetLevel(M1_FWD, 0);
@@ -77,6 +80,7 @@ void stop_motors() {
   PCA9685_SetLevel(M2_REV, 0);
   store_last_turn();
   current_direction = STALL;
+  usleep(microseconds);
 }
 
 void commence() { pressed = 1; }
@@ -144,8 +148,6 @@ sensor_data *handle_packs(int num_sensors, int mode) {
 void *check_sensors(void *ptr) {
   sensor_data *sensor = (sensor_data *)ptr;
   while (reading == 0) {
-    // Lock the mutex while writing
-    pthread_mutex_lock(&sensor_mutex);
     // read appropriate pin
     int pin_state = gpioRead(sensor->GPIO);
     if (pin_state != PI_BAD_GPIO) {
@@ -155,8 +157,6 @@ void *check_sensors(void *ptr) {
       printf("check_sensors: gpioRead(%d) returned PI_BAD_GPIO.\n",
              sensor->GPIO);
     }
-    // Unlock the mutex after writing
-    pthread_mutex_unlock(&sensor_mutex);
   }
   return NULL;
 }
@@ -184,12 +184,11 @@ void get_distance(int pin, int pin_state, uint32_t time) {
 void *check_obstacle(void *ptr) {
   while (reading == 0) {
     // printf("pulse: pulsing!\n");
-    printf("check_obstacle: obstacle detected %dcm away\n", previous);
     if (pulse() > 0) {
       printf("pulse: pulse > 0\n");
       break;
     }
-    if (previous < MIN_DISTANCE_THRESHOLD) {
+    if (previous < DISTANCE_THRESHOLD) {
       obstacle_detected = true;
     }
     if (local_sleep(1, 0) > 0) {
@@ -199,54 +198,93 @@ void *check_obstacle(void *ptr) {
     if (previous > 0) {
       // printf("Distance in cm: %d\n", previous);
     }
+    // printf("check_obstacle: obstacle detected %dcm away\n", previous);
   }
   return NULL;
 }
 
-void dodge_left() {
-  printf("Moving Left\n");
-  turn_left(80, 0);
-  usleep(250000);
-  stop_motors();
-  usleep(250000);
+void dodge_left(int num_moves) {
+  printf("dodge_left:\n");
+  for (int i = 0; i < num_moves; i++) {
+    turn_left(45, 0);
+    usleep(100000);
+    stop_motors(100000);
+  }
 }
 
-void avoid_obstacle(sensor_data *center_line) {
-  stop_motors();
-  usleep(250000);
-  while (reading == 0) {
-    if (previous < MIN_DISTANCE_THRESHOLD) {
-      dodge_left();
+void find_line(sensor_data *center_sensor, int left, int right) {
+  printf("find_line:\n");
+  int i = 4;
+  int duration = previous * 10000;
+  duration = (duration > 1000000) ? 1000000 : duration;
+  while (center_sensor[0].pin_state != 1 && i > 0 && reading == 0) {
+    accelerate_forward(duration / 4, 35);
+    stop_motors(duration / 2);
+    maintain_min_distance();
+    i--;
+    if (left > right) {
+      turn_right(0, 50);
+      usleep(50000);
     } else {
-      dodge_left();
-      printf("Moving forward\n");
-      accelerate_forward(2000000);
-      stop_motors();
-      usleep(250000);
-      while (previous > MIN_DISTANCE_THRESHOLD && reading == 0) {
-        printf("Moving Right\n");
-        turn_right(0, 80);
-        usleep(250000);
-        stop_motors();
-        usleep(250000);
-      }
-
-      dodge_left();
-      printf("Moving Left\n");
-      turn_left(80, 0);
-      usleep(250000);
+      dodge_left(center_sensor);
     }
-
-    stop_motors();
-    usleep(250000);
   }
+}
+
+void maintain_min_distance() {
+  if (previous < 45) {
+    printf("maintain_min_distance: too close! backing up\n");
+    int duration = previous * 10000;
+    duration = (duration > 500000) ? 500000 : duration;
+    accelerate_backward(duration, 50);
+    printf("maintain_min_distance: backing up complete\n");
+  }
+}
+
+void avoid_obstacle(sensor_data *center_sensor) {
+  stop_motors(100000);
+  int left_turns = 0;
+  int right_turns = 0;
+  do {
+    if (previous < DISTANCE_THRESHOLD) {
+      maintain_min_distance();
+      // get out of obstacle path
+      dodge_left(1);
+      left_turns++;
+      if (previous >= DISTANCE_THRESHOLD) {
+        // extra move to clear full car width
+        dodge_left(2);
+        left_turns += 2;
+        find_line(center_sensor, left_turns, right_turns);
+      }
+    } else {
+      // find obstacle again
+      while (previous > DISTANCE_THRESHOLD && reading == 0) {
+        printf("avoid_obstacle: turning right seeking obstacle\n");
+        turn_right(0, 50);
+        right_turns++;
+        usleep(50000);
+        stop_motors(100000);
+        maintain_min_distance();
+        if (right_turns >= 2 * left_turns && !(previous < DISTANCE_THRESHOLD)) {
+          find_line(center_sensor, left_turns, right_turns);
+          right_turns = 0;
+          break;
+        }
+      }
+      // dodge_left(1);
+      // left_turns++;
+    }
+  } while (reading == 0 && (center_sensor[0].pin_state != 1 &&
+                            center_sensor[1].pin_state != 1 &&
+                            center_sensor[2].pin_state != 1));
 }
 
 // printf("avoid_obstacle: casting pack\n");
 // sensor_data *sensor = center_line;
 // do {
 //   // printf("avoid_obstacle: looping avoidance\n");
-//   while (previous < MIN_DISTANCE_THRESHOLD && reading == 0) {
+//   while (previous < DISTANCE_THRESHOLD && reading == 0) {
 //     printf("avoid_obstacle: turning left\n");
 //     turn_left(80, 80);
 //   }
@@ -312,7 +350,7 @@ int setup() {
 }
 
 int cleanup() {
-  stop_motors();  // Stop motors before exiting
+  stop_motors(1000000);  // Stop motors before exiting
   gpioTerminate();
   DEV_ModuleExit();
   handle_packs(NUM_SENSORS, DESTROY);
@@ -324,7 +362,7 @@ void follow_line(sensor_data *sensor_packs) {
     if (sensor_packs[0].pin_state > 0 && sensor_packs[1].pin_state == 0 &&
         sensor_packs[2].pin_state == 0) {
       if (current_direction != STRAIGHT) {
-        accelerate_forward(1);
+        accelerate_forward(10000, 100);
       }
     }  // center and left see line
     else if (sensor_packs[0].pin_state > 0 && sensor_packs[1].pin_state > 0 &&
@@ -332,7 +370,7 @@ void follow_line(sensor_data *sensor_packs) {
       turn_counter--;
       if (turn_counter <= -2) {
         // printf("center and left see line\n");
-        turn_left(90, 0);
+        turn_left(45, 0);
         turn_counter = 0;
       }
     }  // center and right see line
@@ -341,7 +379,7 @@ void follow_line(sensor_data *sensor_packs) {
       turn_counter++;
       if (turn_counter >= 2) {
         // printf("center and right see line\n");
-        turn_right(0, 90);
+        turn_right(0, 45);
         turn_counter = 0;
       }
     }  // only left sees line
@@ -350,7 +388,7 @@ void follow_line(sensor_data *sensor_packs) {
       turn_counter--;
       if (turn_counter <= -2) {
         // printf("left sees line\n");
-        turn_left(90, 0);
+        turn_left(45, 0);
         turn_counter = 0;
       }
     }  // only right sees line
@@ -359,7 +397,7 @@ void follow_line(sensor_data *sensor_packs) {
       turn_counter++;
       if (turn_counter >= 2) {
         // printf("right sees line\n");
-        turn_right(0, 90);
+        turn_right(0, 45);
         turn_counter = 0;
       }
     }  // no line detected
@@ -368,19 +406,19 @@ void follow_line(sensor_data *sensor_packs) {
       if (current_direction == STRAIGHT) {
         switch (last_turn) {
           case LEFT:
-            turn_left(90, 0);
+            turn_left(45, 0);
             turn_counter = 0;
             break;
           case RIGHT:
-            turn_right(0, 90);
+            turn_right(0, 45);
             turn_counter = 0;
             break;
           default:
-            turn_left(90, 0);
+            turn_left(45, 0);
             turn_counter = 0;
         }
       } else if (current_direction != LEFT && current_direction != RIGHT) {
-        turn_left(0, 90);
+        turn_left(45, 0);
         turn_counter = 0;
       }
     }
@@ -389,7 +427,7 @@ void follow_line(sensor_data *sensor_packs) {
     else if (sensor_packs[0].pin_state == 0 && sensor_packs[1].pin_state > 0 &&
              sensor_packs[2].pin_state > 0) {
       if (current_direction == STALL) {
-        turn_left(90, 0);
+        turn_left(45, 0);
         turn_counter = 0;
       }
     } else if (sensor_packs[0].pin_state > 0 && sensor_packs[1].pin_state > 0 &&
@@ -436,26 +474,26 @@ int main() {
       printf("main: pthread_create %d failed, exiting.\n", i);
       return 1;
     }
-  }
-  // DEBUGGING: constantly output pin states
-  while (reading == 7) {
-    time_sleep(1);
-    for (int i = 0; i < NUM_INPUT; i++) {
-      printf("%-10s%d%s%10s\n", "GPIO PIN: ", sensor_packs[i].GPIO, " Line? ",
-             sensor_packs[i].pin_state ? "YES" : "NO");
+    // DEBUGGING: constantly output pin states
+    while (reading == 7) {
+      time_sleep(1);
+      for (int i = 0; i < NUM_INPUT; i++) {
+        printf("%-10s%d%s%10s\n", "GPIO PIN: ", sensor_packs[i].GPIO, " Line? ",
+               sensor_packs[i].pin_state ? "YES" : "NO");
+      }
     }
-  }
-  while (reading == 1) {
-  }
-  follow_line(sensor_packs);
-  // join threads and clean up
-  printf("Cleaning up and exiting\n");
-  for (int i = 1; i < NUM_SENSORS; i++) {
-    if (pthread_join(threads[i], NULL) != 0) {
-      printf("main: pthread_join failed, exiting.\n");
-      return 1;
+    while (reading == 1) {
     }
+    follow_line(sensor_packs);
+    // join threads and clean up
+    printf("Cleaning up and exiting\n");
+    for (int i = 1; i < NUM_SENSORS; i++) {
+      if (pthread_join(threads[i], NULL) != 0) {
+        printf("main: pthread_join failed, exiting.\n");
+        return 1;
+      }
+    }
+    cleanup();
+    return 0;
   }
-  cleanup();
-  return 0;
 }
