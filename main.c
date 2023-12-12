@@ -206,37 +206,55 @@ void *check_obstacle(void *ptr) {
 void dodge_left(int num_moves) {
   printf("dodge_left:\n");
   for (int i = 0; i < num_moves; i++) {
-    turn_left(45, 0);
+    turn_left(50, 0);
     usleep(100000);
     stop_motors(100000);
   }
 }
 
-void find_line(sensor_data *center_sensor, int left, int right) {
+int find_line(sensor_data *center_sensor, int left, int right) {
   printf("find_line:\n");
+  int failed_attempts;
   int i = 4;
-  int duration = previous * 10000;
+  int duration = previous * 100000;
   duration = (duration > 1000000) ? 1000000 : duration;
   while (center_sensor[0].pin_state != 1 && i > 0 && reading == 0) {
-    accelerate_forward(duration / 4, 35);
+    accelerate_forward(duration / 4, 55);
     stop_motors(duration / 2);
     maintain_min_distance();
-    i--;
-    if (left > right) {
-      turn_right(0, 50);
-      usleep(50000);
+    if (center_sensor[0].pin_state != 1 && center_sensor[1].pin_state != 1 &&
+        center_sensor[2].pin_state != 1) {
+      // If line is not found, increase failed_attempts
+      failed_attempts++;
     } else {
-      dodge_left(center_sensor);
+      // If line is found, reset failed_attempts
+      failed_attempts = 0;
+    }
+    i--;
+    if (failed_attempts >= 3) {
+      break;
     }
   }
+  int duty = 60 + failed_attempts * 5;
+  if ((left > right) || previous > DISTANCE_THRESHOLD) {
+    printf("find_line: dodge right\n");
+    turn_right(0, duty);
+    usleep(100000);
+  } else {
+    printf("find_line: dodge left\n");
+    dodge_left(center_sensor);
+  }
+  return failed_attempts;
 }
 
 void maintain_min_distance() {
   if (previous < 45) {
     printf("maintain_min_distance: too close! backing up\n");
-    int duration = previous * 10000;
+    int duration = (55 - previous) * 10000;
     duration = (duration > 500000) ? 500000 : duration;
     accelerate_backward(duration, 50);
+    turn_left(55, 0);
+    usleep(100000);
     printf("maintain_min_distance: backing up complete\n");
   }
 }
@@ -245,29 +263,38 @@ void avoid_obstacle(sensor_data *center_sensor) {
   stop_motors(100000);
   int left_turns = 0;
   int right_turns = 0;
+  int juice = 0;
+  int init_leave = 0;
   do {
     if (previous < DISTANCE_THRESHOLD) {
       maintain_min_distance();
+      if (init_leave == 0) {
+        // leave line
+        turn_left(50, 0);
+        usleep(100000);
+        stop_motors(150000);
+        init_leave = 1;
+      }
       // get out of obstacle path
       dodge_left(1);
       left_turns++;
       if (previous >= DISTANCE_THRESHOLD) {
         // extra move to clear full car width
-        dodge_left(2);
-        left_turns += 2;
-        find_line(center_sensor, left_turns, right_turns);
+        dodge_left(1);
+        left_turns++;
+        juice = find_line(center_sensor, left_turns, right_turns);
       }
     } else {
       // find obstacle again
       while (previous > DISTANCE_THRESHOLD && reading == 0) {
         printf("avoid_obstacle: turning right seeking obstacle\n");
-        turn_right(0, 50);
+        turn_right(0, 57 + juice * 5);
         right_turns++;
         usleep(50000);
         stop_motors(100000);
         maintain_min_distance();
         if (right_turns >= 2 * left_turns && !(previous < DISTANCE_THRESHOLD)) {
-          find_line(center_sensor, left_turns, right_turns);
+          juice = find_line(center_sensor, left_turns, right_turns);
           right_turns = 0;
           break;
         }
