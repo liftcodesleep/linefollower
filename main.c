@@ -323,24 +323,6 @@ void avoid_obstacle(sensor_data *center_sensor) {
                             center_sensor[2].pin_state != 1));
 }
 
-// printf("avoid_obstacle: casting pack\n");
-// sensor_data *sensor = center_line;
-// do {
-//   // printf("avoid_obstacle: looping avoidance\n");
-//   while (previous < DISTANCE_THRESHOLD && reading == 0) {
-//     printf("avoid_obstacle: turning left\n");
-//     turn_left(80, 80);
-//   }
-//   printf("avoid_obstacle: moving forward for 1 second\n");
-//   accelerate_forward(1000000);
-//   turn_right(80, 80);
-//   while (previous > MAX_DISTANCE_THRESHOLD && reading == 0) {
-//     printf("avoid_obstacle: turning right\n");
-//     turn_right(80, 80);
-//   }
-// } while (reading == 0);
-// printf("avoid_obstacle: finished avoidance\n");
-
 void store_last_turn() {
   switch (current_direction) {
     case LEFT:
@@ -517,26 +499,26 @@ int main() {
       printf("main: pthread_create %d failed, exiting.\n", i);
       return 1;
     }
-    // DEBUGGING: constantly output pin states
-    while (reading == 7) {
-      time_sleep(1);
-      for (int i = 0; i < NUM_INPUT; i++) {
-        printf("%-10s%d%s%10s\n", "GPIO PIN: ", sensor_packs[i].GPIO, " Line? ",
-               sensor_packs[i].pin_state ? "YES" : "NO");
-      }
-    }
-    while (reading == 1) {
-    }
-    follow_line(sensor_packs);
-    // join threads and clean up
-    printf("Cleaning up and exiting\n");
-    for (int i = 1; i < NUM_SENSORS; i++) {
-      if (pthread_join(threads[i], NULL) != 0) {
-        printf("main: pthread_join failed, exiting.\n");
-        return 1;
-      }
-    }
-    cleanup();
-    return 0;
   }
+  // DEBUGGING: constantly output pin states
+  while (reading == 7) {
+    time_sleep(1);
+    for (int i = 0; i < NUM_INPUT; i++) {
+      printf("%-10s%d%s%10s\n", "GPIO PIN: ", sensor_packs[i].GPIO, " Line? ",
+             sensor_packs[i].pin_state ? "YES" : "NO");
+    }
+  }
+  while (reading == 1) {
+  }
+  follow_line(sensor_packs);
+  // join threads and clean up
+  printf("Cleaning up and exiting\n");
+  for (int i = 1; i < NUM_SENSORS; i++) {
+    if (pthread_join(threads[i], NULL) != 0) {
+      printf("main: pthread_join failed, exiting.\n");
+      return 1;
+    }
+  }
+  cleanup();
+  return 0;
 }
