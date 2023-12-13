@@ -12,6 +12,7 @@ DIRECTION last_turn = STALL;
 int turn_counter = 0;
 int pressed = 0;
 int reading = 0;
+int obstacle_buffer = 0;
 int previous = 200000;         // stores last recorded distance
 volatile uint32_t pulse_tick;  // stores time of each pulse
 volatile bool obstacle_detected = false;
@@ -189,16 +190,21 @@ void *check_obstacle(void *ptr) {
       break;
     }
     if (previous < DISTANCE_THRESHOLD) {
-      obstacle_detected = true;
+      obstacle_buffer++;
+      if (obstacle_buffer > 2) {
+        obstacle_detected = true;
+      }
+    } else {
+      obstacle_buffer = 0;
     }
-    if (local_sleep(1, 0) > 0) {
+    if (local_sleep(0, 250000) > 0) {
       printf("pulse: sleep > 0\n");
       break;
     }
     if (previous > 0) {
       // printf("Distance in cm: %d\n", previous);
     }
-    // printf("check_obstacle: obstacle detected %dcm away\n", previous);
+    printf("check_obstacle: obstacle detected %dcm away\n", previous);
   }
   return NULL;
 }
@@ -206,7 +212,7 @@ void *check_obstacle(void *ptr) {
 void dodge_left(int num_moves) {
   printf("dodge_left:\n");
   for (int i = 0; i < num_moves; i++) {
-    turn_left(50, 0);
+    turn_left(55, 0);
     usleep(100000);
     stop_motors(100000);
   }
@@ -214,28 +220,32 @@ void dodge_left(int num_moves) {
 
 int find_line(sensor_data *center_sensor, int left, int right) {
   printf("find_line:\n");
-  int failed_attempts;
-  int i = 4;
+  int failed_attempts = 0;
+  int i = 5;
   int duration = previous * 100000;
   duration = (duration > 1000000) ? 1000000 : duration;
-  while (center_sensor[0].pin_state != 1 && i > 0 && reading == 0) {
-    accelerate_forward(duration / 4, 55);
+  while ((center_sensor[0].pin_state != 1 && center_sensor[1].pin_state != 1 &&
+          center_sensor[2].pin_state != 1) &&
+         i > 0 && reading == 0) {
+    accelerate_forward(duration / 6, 65);
     stop_motors(duration / 2);
     maintain_min_distance();
     if (center_sensor[0].pin_state != 1 && center_sensor[1].pin_state != 1 &&
         center_sensor[2].pin_state != 1) {
       // If line is not found, increase failed_attempts
-      failed_attempts++;
+      if (failed_attempts < 4) {
+        failed_attempts++;
+      }
     } else {
       // If line is found, reset failed_attempts
       failed_attempts = 0;
     }
     i--;
-    if (failed_attempts >= 3) {
+    if (failed_attempts >= 8) {
       break;
     }
   }
-  int duty = 60 + failed_attempts * 5;
+  int duty = 57 + failed_attempts * 5;
   if ((left > right) || previous > DISTANCE_THRESHOLD) {
     printf("find_line: dodge right\n");
     turn_right(0, duty);
@@ -244,16 +254,17 @@ int find_line(sensor_data *center_sensor, int left, int right) {
     printf("find_line: dodge left\n");
     dodge_left(center_sensor);
   }
+  printf("find_line: failed_attempts: %d\n", failed_attempts);
   return failed_attempts;
 }
 
 void maintain_min_distance() {
   if (previous < 45) {
     printf("maintain_min_distance: too close! backing up\n");
-    int duration = (55 - previous) * 10000;
+    int duration = (60 - previous) * 10000;
     duration = (duration > 500000) ? 500000 : duration;
     accelerate_backward(duration, 50);
-    turn_left(55, 0);
+    turn_left(40, 0);
     usleep(100000);
     printf("maintain_min_distance: backing up complete\n");
   }
@@ -261,6 +272,10 @@ void maintain_min_distance() {
 
 void avoid_obstacle(sensor_data *center_sensor) {
   stop_motors(100000);
+  usleep(1000000);
+  if (previous > DISTANCE_THRESHOLD) {
+    return;
+  }
   int left_turns = 0;
   int right_turns = 0;
   int juice = 0;
@@ -287,8 +302,9 @@ void avoid_obstacle(sensor_data *center_sensor) {
     } else {
       // find obstacle again
       while (previous > DISTANCE_THRESHOLD && reading == 0) {
-        printf("avoid_obstacle: turning right seeking obstacle\n");
-        turn_right(0, 57 + juice * 5);
+        // printf("avoid_obstacle: turning right seeking obstacle, juice =
+        // %d\n", juice);
+        turn_right(0, (55 + juice * 5));
         right_turns++;
         usleep(50000);
         stop_motors(100000);
@@ -397,7 +413,7 @@ void follow_line(sensor_data *sensor_packs) {
       turn_counter--;
       if (turn_counter <= -2) {
         // printf("center and left see line\n");
-        turn_left(45, 0);
+        turn_left(47, 0);
         turn_counter = 0;
       }
     }  // center and right see line
@@ -406,7 +422,7 @@ void follow_line(sensor_data *sensor_packs) {
       turn_counter++;
       if (turn_counter >= 2) {
         // printf("center and right see line\n");
-        turn_right(0, 45);
+        turn_right(0, 48);
         turn_counter = 0;
       }
     }  // only left sees line
@@ -415,7 +431,7 @@ void follow_line(sensor_data *sensor_packs) {
       turn_counter--;
       if (turn_counter <= -2) {
         // printf("left sees line\n");
-        turn_left(45, 0);
+        turn_left(47, 0);
         turn_counter = 0;
       }
     }  // only right sees line
@@ -424,7 +440,7 @@ void follow_line(sensor_data *sensor_packs) {
       turn_counter++;
       if (turn_counter >= 2) {
         // printf("right sees line\n");
-        turn_right(0, 45);
+        turn_right(0, 48);
         turn_counter = 0;
       }
     }  // no line detected
@@ -433,19 +449,19 @@ void follow_line(sensor_data *sensor_packs) {
       if (current_direction == STRAIGHT) {
         switch (last_turn) {
           case LEFT:
-            turn_left(45, 0);
+            turn_left(47, 0);
             turn_counter = 0;
             break;
           case RIGHT:
-            turn_right(0, 45);
+            turn_right(0, 48);
             turn_counter = 0;
             break;
           default:
-            turn_left(45, 0);
+            turn_right(0, 47);
             turn_counter = 0;
         }
       } else if (current_direction != LEFT && current_direction != RIGHT) {
-        turn_left(45, 0);
+        turn_left(47, 0);
         turn_counter = 0;
       }
     }
@@ -454,7 +470,7 @@ void follow_line(sensor_data *sensor_packs) {
     else if (sensor_packs[0].pin_state == 0 && sensor_packs[1].pin_state > 0 &&
              sensor_packs[2].pin_state > 0) {
       if (current_direction == STALL) {
-        turn_left(45, 0);
+        turn_left(47, 0);
         turn_counter = 0;
       }
     } else if (sensor_packs[0].pin_state > 0 && sensor_packs[1].pin_state > 0 &&
